@@ -9,6 +9,7 @@
 #include <format>
 #include <chrono>
 #include <thread>
+#include <cstring>
 
 namespace winhelp {
     LRESULT CALLBACK wndproc(HWND handle, UINT message, WPARAM wparam, LPARAM lparam);
@@ -30,6 +31,36 @@ namespace winhelp {
         const float& operator[](int index) const { return index ? y : x; }
     };
 
+    struct ivec2 {
+        int x;
+        int y;
+
+        ivec2() : x(0), y(0) {}
+        ivec2(int X, int Y) : x(X), y(Y) {}
+
+        // Explicit float -> int
+        explicit ivec2(const vec2& v)
+            : x((int)v.x), y((int)v.y) {}
+
+        ivec2 operator+(const ivec2& other) const { return { x + other.x, y + other.y }; }
+        ivec2 operator-(const ivec2& other) const { return { x - other.x, y - other.y }; }
+        ivec2 operator*(int scalar) const { return { x * scalar, y * scalar }; }
+        ivec2 operator/(int scalar) const { return { x / scalar, y / scalar }; }
+
+        ivec2& operator+=(const ivec2& other) { x += other.x; y += other.y; return *this; }
+        ivec2& operator-=(const ivec2& other) { x -= other.x; y -= other.y; return *this; }
+        ivec2& operator*=(int scalar) { x *= scalar; y *= scalar; return *this; }
+        ivec2& operator/=(int scalar) { x /= scalar; y /= scalar; return *this; }
+
+        int& operator[](int index) { return index ? y : x; }
+        const int& operator[](int index) const { return index ? y : x; }
+
+        // Explicit int -> float
+        explicit operator vec2() const {
+            return vec2((float)x, (float)y);
+        }
+    };
+
     struct vec3 {
         float x;
         float y;
@@ -48,6 +79,75 @@ namespace winhelp {
         const float& operator[](int index) const { return index == 0 ? x : (index == 1 ? y : z); }
     };
 
+    struct vec4 {
+        float x;
+        float y;
+        float z;
+        float w;
+
+        vec4() : x(0), y(0), z(0), w(255) {}
+
+        vec4(float X, float Y, float Z, float W)
+            : x(X), y(Y), z(Z), w(W) {}
+
+        // Implicit vec3 -> vec4 (alpha defaults to 255)
+        vec4(const vec3& v)
+            : x(v.x), y(v.y), z(v.z), w(255) {}
+
+        vec4 operator+(const vec4& other) const {
+            return { x + other.x, y + other.y, z + other.z, w + other.w };
+        }
+
+        vec4 operator-(const vec4& other) const {
+            return { x - other.x, y - other.y, z - other.z, w - other.w };
+        }
+
+        vec4 operator*(float scalar) const {
+            return { x * scalar, y * scalar, z * scalar, w * scalar };
+        }
+
+        vec4 operator/(float scalar) const {
+            return { x / scalar, y / scalar, z / scalar, w / scalar };
+        }
+
+        vec4& operator+=(const vec4& other) {
+            x += other.x; y += other.y; z += other.z; w += other.w;
+            return *this;
+        }
+
+        vec4& operator-=(const vec4& other) {
+            x -= other.x; y -= other.y; z -= other.z; w -= other.w;
+            return *this;
+        }
+
+        vec4& operator*=(float scalar) {
+            x *= scalar; y *= scalar; z *= scalar; w *= scalar;
+            return *this;
+        }
+
+        vec4& operator/=(float scalar) {
+            x /= scalar; y /= scalar; z /= scalar; w /= scalar;
+            return *this;
+        }
+
+        float& operator[](int index) {
+            return index == 0 ? x :
+                index == 1 ? y :
+                index == 2 ? z : w;
+        }
+
+        const float& operator[](int index) const {
+            return index == 0 ? x :
+                index == 1 ? y :
+                index == 2 ? z : w;
+        }
+
+        // Explicit vec4 -> vec3
+        explicit operator vec3() const {
+            return vec3(x, y, z);
+        }
+    };
+
     inline vec2& internal_mouse() {
         static vec2 pos;
         return pos;
@@ -58,21 +158,81 @@ namespace winhelp {
     }
 
     struct Surface {
-        vec2 size;
+        ivec2 size;
         std::vector<uint32_t> pixels;
+
         Surface() : size(0, 0) {}
-        Surface(vec2 surfaceSize) : size(surfaceSize), pixels((size_t)surfaceSize.x * surfaceSize.y, 0xFF000000) {}
-        void fill(vec3 colour) {
-            uint32_t value = 0xFF000000 | (uint32_t(colour.x) << 16) | (uint32_t(colour.y) << 8) | uint32_t(colour.z);
+
+        Surface(vec2 surfaceSize)
+            : size(surfaceSize),
+            pixels((size_t)surfaceSize.x * surfaceSize.y, 0xFF000000) {}
+
+        static uint32_t pack(const vec4& c) {
+            return
+                (uint32_t(c.w) << 24) |
+                (uint32_t(c.x) << 16) |
+                (uint32_t(c.y) << 8)  |
+                uint32_t(c.z);
+        }
+
+        static vec4 unpack(uint32_t v) {
+            return vec4(
+                float((v >> 16) & 0xFF),
+                float((v >> 8)  & 0xFF),
+                float(v & 0xFF),
+                float((v >> 24) & 0xFF)
+            );
+        }
+
+        void fill(vec4 colour) {
+            uint32_t value = pack(colour);
             std::fill(pixels.begin(), pixels.end(), value);
         }
+
         void blit(vec2 position, const Surface& source) {
             for (int y = 0; y < source.size.y; y++) {
                 for (int x = 0; x < source.size.x; x++) {
-                    int destinationX = position.x + x;
-                    int destinationY = position.y + y;
-                    if (destinationX < 0 || destinationY < 0 || destinationX >= size.x || destinationY >= size.y) continue;
-                    pixels[(size_t)destinationY * size.x + destinationX] = source.pixels[(size_t)y * source.size.x + x];
+
+                    int dx = position.x + x;
+                    int dy = position.y + y;
+
+                    if (dx < 0 || dy < 0 ||
+                        dx >= size.x || dy >= size.y)
+                        continue;
+
+                    uint32_t src = source.pixels[(size_t)y * source.size.x + x];
+                    uint32_t& dst = pixels[(size_t)dy * size.x + dx];
+
+                    uint8_t srcA = (src >> 24) & 0xFF;
+
+                    if (srcA == 255) {
+                        dst = src;
+                        continue;
+                    }
+
+                    if (srcA == 0)
+                        continue;
+
+                    uint8_t srcR = (src >> 16) & 0xFF;
+                    uint8_t srcG = (src >> 8)  & 0xFF;
+                    uint8_t srcB =  src        & 0xFF;
+
+                    uint8_t dstR = (dst >> 16) & 0xFF;
+                    uint8_t dstG = (dst >> 8)  & 0xFF;
+                    uint8_t dstB =  dst        & 0xFF;
+
+                    float alpha = srcA / 255.0f;
+                    float inv   = 1.0f - alpha;
+
+                    uint8_t outR = uint8_t(srcR * alpha + dstR * inv);
+                    uint8_t outG = uint8_t(srcG * alpha + dstG * inv);
+                    uint8_t outB = uint8_t(srcB * alpha + dstB * inv);
+
+                    dst =
+                        (0xFF << 24) |
+                        (outR << 16) |
+                        (outG << 8)  |
+                        outB;
                 }
             }
         }
@@ -100,11 +260,15 @@ namespace winhelp {
             F1, F2, F3, F4, F5, F6, F7, F8, F9, F10, F11, F12
         };
 
+        enum class mouse {
+            left, right, middle, none
+        };
+
         struct event {
             eventTypes type;
             vec2 hit;
             std::vector<key> keys;
-            vec2 mouse;
+            mouse click;
         };
 
         inline std::vector<event>& queue() {
@@ -129,112 +293,353 @@ namespace winhelp {
         std::string title;
         HWND handle;
         Surface surface;
-        display(vec2 displaySize, std::string windowTitle) : size(displaySize), title(windowTitle), handle(nullptr), surface(displaySize) {
+
+        BITMAPINFO bitmapInfo{};
+
+        display(vec2 displaySize, std::string windowTitle)
+            : size(displaySize),
+            title(windowTitle),
+            handle(nullptr),
+            surface(displaySize)
+        {
             static HINSTANCE instance = GetModuleHandleW(nullptr);
             static bool registered = false;
+
             if (!registered) {
                 WNDCLASSW windowClass{};
                 windowClass.lpfnWndProc = wndproc;
                 windowClass.hInstance = instance;
                 windowClass.lpszClassName = L"winhelp";
+                windowClass.hCursor = LoadCursor(nullptr, IDC_ARROW);
                 RegisterClassW(&windowClass);
                 registered = true;
             }
+
             std::wstring wideTitle(title.begin(), title.end());
-            handle = CreateWindowW(L"winhelp", wideTitle.c_str(), WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT, size.x, size.y, nullptr, nullptr, instance, nullptr);
+
+            handle = CreateWindowW(
+                L"winhelp",
+                wideTitle.c_str(),
+                WS_OVERLAPPEDWINDOW,
+                CW_USEDEFAULT,
+                CW_USEDEFAULT,
+                (int)size.x,
+                (int)size.y,
+                nullptr,
+                nullptr,
+                instance,
+                nullptr
+            );
+
             ShowWindow(handle, SW_SHOW);
+
+            configure_bitmap();
         }
+
+        void configure_bitmap() {
+            ZeroMemory(&bitmapInfo, sizeof(bitmapInfo));
+            bitmapInfo.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+            bitmapInfo.bmiHeader.biWidth = (int)size.x;
+            bitmapInfo.bmiHeader.biHeight = -(int)size.y; // top-down
+            bitmapInfo.bmiHeader.biPlanes = 1;
+            bitmapInfo.bmiHeader.biBitCount = 32;
+            bitmapInfo.bmiHeader.biCompression = BI_RGB;
+        }
+
         void set_size(vec2 newSize) {
             size = newSize;
             surface = Surface(newSize);
-            SetWindowPos(handle, 0, 0, 0, newSize.x, newSize.y, SWP_NOMOVE | SWP_NOZORDER);
+
+            SetWindowPos(
+                handle,
+                nullptr,
+                0, 0,
+                (int)newSize.x,
+                (int)newSize.y,
+                SWP_NOMOVE | SWP_NOZORDER
+            );
+
+            configure_bitmap();
         }
+
         void set_title(std::string newTitle) {
             title = newTitle;
             std::wstring wideTitle(newTitle.begin(), newTitle.end());
             SetWindowTextW(handle, wideTitle.c_str());
         }
+
         void flip() {
-            HDC deviceContext = GetDC(handle);
-            BITMAPINFO bitmapInfo{ { sizeof(BITMAPINFOHEADER), size.x, -size.y, 1, 32, BI_RGB } };
-            StretchDIBits(deviceContext, 0, 0, size.x, size.y, 0, 0, size.x, size.y, surface.pixels.data(), &bitmapInfo, DIB_RGB_COLORS, SRCCOPY);
-            ReleaseDC(handle, deviceContext);
+            HDC dc = GetDC(handle);
+
+            StretchDIBits(
+                dc,
+                0, 0,
+                (int)size.x,
+                (int)size.y,
+                0, 0,
+                (int)size.x,
+                (int)size.y,
+                surface.pixels.data(),
+                &bitmapInfo,
+                DIB_RGB_COLORS,
+                SRCCOPY
+            );
+
+            ReleaseDC(handle, dc);
         }
+
         void close() {
             DestroyWindow(handle);
+            handle = nullptr;
         }
     };
 
+    namespace font {
+
+        inline Surface text(
+            const std::wstring& content,
+            vec4 colour,
+            int fontSize = 16,
+            const std::wstring& fontName = L"Consolas"
+        ) {
+            if (content.empty())
+                return Surface({0, 0});
+
+            HDC hdc = CreateCompatibleDC(nullptr);
+
+            HFONT font = CreateFontW(
+                fontSize,
+                0, 0, 0,
+                FW_NORMAL,
+                FALSE, FALSE, FALSE,
+                DEFAULT_CHARSET,
+                OUT_DEFAULT_PRECIS,
+                CLIP_DEFAULT_PRECIS,
+                CLEARTYPE_QUALITY,
+                DEFAULT_PITCH | FF_DONTCARE,
+                fontName.c_str()
+            );
+
+            HGDIOBJ oldFont = SelectObject(hdc, font);
+
+            SIZE textSize{};
+            GetTextExtentPoint32W(
+                hdc,
+                content.c_str(),
+                (int)content.length(),
+                &textSize
+            );
+
+            Surface result({ (float)textSize.cx, (float)textSize.cy });
+
+            BITMAPINFO bitmapInfo{};
+            bitmapInfo.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+            bitmapInfo.bmiHeader.biWidth = textSize.cx;
+            bitmapInfo.bmiHeader.biHeight = -textSize.cy;
+            bitmapInfo.bmiHeader.biPlanes = 1;
+            bitmapInfo.bmiHeader.biBitCount = 32;
+            bitmapInfo.bmiHeader.biCompression = BI_RGB;
+
+            void* bits = nullptr;
+
+            HBITMAP bitmap = CreateDIBSection(
+                hdc,
+                &bitmapInfo,
+                DIB_RGB_COLORS,
+                &bits,
+                nullptr,
+                0
+            );
+
+            HGDIOBJ oldBitmap = SelectObject(hdc, bitmap);
+
+            std::memset(bits, 0, textSize.cx * textSize.cy * 4);
+
+            SetBkMode(hdc, TRANSPARENT);
+            SetTextColor(hdc, RGB(
+                (int)colour.x,
+                (int)colour.y,
+                (int)colour.z
+            ));
+
+            TextOutW(
+                hdc,
+                0,
+                0,
+                content.c_str(),
+                (int)content.length()
+            );
+
+            uint32_t* src = (uint32_t*)bits;
+            for (size_t i = 0; i < result.pixels.size(); ++i) {
+
+                uint32_t pixel = src[i];
+
+                uint8_t r = (pixel >> 16) & 0xFF;
+                uint8_t g = (pixel >> 8)  & 0xFF;
+                uint8_t b =  pixel        & 0xFF;
+
+                if (r || g || b) {
+                    result.pixels[i] =
+                        (uint32_t(colour.w) << 24) |
+                        (uint32_t(r) << 16) |
+                        (uint32_t(g) << 8)  |
+                        uint32_t(b);
+                }
+                else {
+                    result.pixels[i] = 0;
+                }
+            }
+
+            SelectObject(hdc, oldBitmap);
+            SelectObject(hdc, oldFont);
+
+            DeleteObject(bitmap);
+            DeleteObject(font);
+            DeleteDC(hdc);
+
+            return result;
+        }
+
+    }
+
     namespace draw {
+
+        inline uint32_t pack_colour(vec3 c, uint8_t a = 255) {
+            return (uint32_t(a) << 24) |
+                (uint32_t(c.x) << 16) |
+                (uint32_t(c.y) << 8)  |
+                uint32_t(c.z);
+        }
+
         inline void put_pixel(Surface& surface, int x, int y, vec3 colour) {
-            if (x < 0 || y < 0 || x >= surface.size.x || y >= surface.size.y) return;
-            surface.pixels[(size_t)y * surface.size.x + x] = 0xFF000000 | (uint32_t(colour.x) << 16) | (uint32_t(colour.y) << 8) | uint32_t(colour.z);
+            if (x < 0 || y < 0 || x >= surface.size.x || y >= surface.size.y)
+                return;
+
+            surface.pixels[(size_t)y * surface.size.x + x] =
+                pack_colour(colour);
         }
 
-        inline void line(Surface& surface, vec2 start, vec2 end, vec3 colour, float thickness = 1.0f) {
-            int deltaX = std::abs(end.x - start.x);
-            int deltaY = std::abs(end.y - start.y);
-            int stepX = start.x < end.x ? 1 : -1;
-            int stepY = start.y < end.y ? 1 : -1;
-            int error = deltaX - deltaY;
+        // Alpha blended pixel write (for font blitting etc.)
+        inline void put_pixel_alpha(Surface& surface, int x, int y, uint32_t src) {
+            if (x < 0 || y < 0 || x >= surface.size.x || y >= surface.size.y)
+                return;
+
+            uint32_t& dst = surface.pixels[(size_t)y * surface.size.x + x];
+
+            uint8_t srcA = (src >> 24) & 0xFF;
+            if (srcA == 255) {
+                dst = src;
+                return;
+            }
+            if (srcA == 0) return;
+
+            uint8_t dstR = (dst >> 16) & 0xFF;
+            uint8_t dstG = (dst >> 8) & 0xFF;
+            uint8_t dstB = dst & 0xFF;
+
+            uint8_t srcR = (src >> 16) & 0xFF;
+            uint8_t srcG = (src >> 8) & 0xFF;
+            uint8_t srcB = src & 0xFF;
+
+            uint8_t invA = 255 - srcA;
+
+            uint8_t r = (srcR * srcA + dstR * invA) / 255;
+            uint8_t g = (srcG * srcA + dstG * invA) / 255;
+            uint8_t b = (srcB * srcA + dstB * invA) / 255;
+
+            dst = (0xFF << 24) | (r << 16) | (g << 8) | b;
+        }
+
+        inline void blit(Surface& target, const Surface& source, vec2 position) {
+            for (int y = 0; y < source.size.y; ++y) {
+                for (int x = 0; x < source.size.x; ++x) {
+                    uint32_t srcPixel =
+                        source.pixels[(size_t)y * source.size.x + x];
+
+                    put_pixel_alpha(
+                        target,
+                        position.x + x,
+                        position.y + y,
+                        srcPixel
+                    );
+                }
+            }
+        }
+
+        inline void line(Surface& surface, vec2 start, vec2 end,
+                        vec3 colour, float thickness = 1.0f) {
+
+            int x0 = start.x;
+            int y0 = start.y;
+            int x1 = end.x;
+            int y1 = end.y;
+
+            int dx = std::abs(x1 - x0);
+            int dy = std::abs(y1 - y0);
+            int sx = x0 < x1 ? 1 : -1;
+            int sy = y0 < y1 ? 1 : -1;
+            int err = dx - dy;
+
             while (true) {
-                put_pixel(surface, start.x, start.y, colour);
-                if (start.x == end.x && start.y == end.y) break;
-                int error2 = 2 * error;
-                if (error2 > -deltaY) { error -= deltaY; start.x += stepX; }
-                if (error2 < deltaX) { error += deltaX; start.y += stepY; }
+
+                int half = (int)(thickness * 0.5f);
+                for (int ty = -half; ty <= half; ++ty)
+                    for (int tx = -half; tx <= half; ++tx)
+                        put_pixel(surface, x0 + tx, y0 + ty, colour);
+
+                if (x0 == x1 && y0 == y1) break;
+
+                int e2 = err * 2;
+                if (e2 > -dy) { err -= dy; x0 += sx; }
+                if (e2 < dx)  { err += dx; y0 += sy; }
             }
         }
 
-        inline void lines(Surface& surface, std::vector<std::array<vec2, 2>> lineSegments, vec3 colour, float thickness = 1.0f) {
-            for (auto& segment : lineSegments) {
-                line(surface, segment[0], segment[1], colour, thickness);
-            }
+        inline void rect(Surface& surface, vec2 pos,
+                        vec2 size, vec3 colour,
+                        float thickness = 1.0f) {
+
+            line(surface, pos,
+                { pos.x + size.x, pos.y }, colour, thickness);
+
+            line(surface,
+                { pos.x + size.x, pos.y },
+                { pos.x + size.x, pos.y + size.y },
+                colour, thickness);
+
+            line(surface,
+                { pos.x + size.x, pos.y + size.y },
+                { pos.x, pos.y + size.y },
+                colour, thickness);
+
+            line(surface,
+                { pos.x, pos.y + size.y },
+                pos, colour, thickness);
         }
 
-        inline void polygon(Surface& surface, const std::vector<std::array<vec2, 2>>& lineSegments, vec3 colour, float thickness = 1.0f) {
-            if (lineSegments.empty()) return;
-            int minimumY = lineSegments[0][0].y;
-            int maximumY = lineSegments[0][0].y;
-            for (const auto& segment : lineSegments) {
-                minimumY = std::min(minimumY, (const int)std::min(segment[0].y, segment[1].y));
-                maximumY = std::max(maximumY, (const int)std::max(segment[0].y, segment[1].y));
-            }
-            uint32_t colourValue = 0xFF000000 | (uint32_t(colour.x) << 16) | (uint32_t(colour.y) << 8) | uint32_t(colour.z);
-            for (int y = minimumY; y <= maximumY; y++) {
-                std::vector<int> intersections;
-                for (const auto& segment : lineSegments) {
-                    vec2 a = segment[0];
-                    vec2 b = segment[1];
-                    if (a.y > b.y) std::swap(a, b);
-                    if (y < a.y || y >= b.y) continue;
-                    int dx = b.x - a.x;
-                    int dy = b.y - a.y;
-                    int x = a.x + (y - a.y) * dx / dy;
-                    intersections.push_back(x);
-                }
-                std::sort(intersections.begin(), intersections.end());
-                for (size_t i = 0; i + 1 < intersections.size(); i += 2) {
-                    for (int x = intersections[i]; x <= intersections[i + 1]; x++) {
-                        if (x < 0 || y < 0 || x >= surface.size.x || y >= surface.size.y) continue;
-                        surface.pixels[(size_t)y * surface.size.x + x] = colourValue;
-                    }
-                }
-            }
-        }
+        inline void circle(Surface& surface, vec2 center,
+                        int radius, vec3 colour,
+                        bool filled = true) {
 
-        inline void rect(Surface& surface, vec2 position, vec2 rectangleSize, vec3 colour, float thickness = 1.0f) {
-            line(surface, position, { position.x + rectangleSize.x, position.y }, colour, thickness);
-            line(surface, { position.x + rectangleSize.x, position.y }, { position.x + rectangleSize.x, position.y + rectangleSize.y }, colour, thickness);
-            line(surface, { position.x + rectangleSize.x, position.y + rectangleSize.y }, { position.x, position.y + rectangleSize.y }, colour, thickness);
-            line(surface, { position.x, position.y + rectangleSize.y }, position, colour, thickness);
-        }
+            for (int y = -radius; y <= radius; ++y) {
+                for (int x = -radius; x <= radius; ++x) {
 
-        inline void circle(Surface& surface, vec2 center, int radius, vec3 colour, float thickness = 1.0f) {
-            for (int y = -radius; y <= radius; y++) {
-                for (int x = -radius; x <= radius; x++) {
-                    if (x * x + y * y <= radius * radius) {
-                        put_pixel(surface, center.x + x, center.y + y, colour);
+                    int dist2 = x * x + y * y;
+
+                    if (filled) {
+                        if (dist2 <= radius * radius)
+                            put_pixel(surface,
+                                    center.x + x,
+                                    center.y + y,
+                                    colour);
+                    } else {
+                        if (dist2 <= radius * radius &&
+                            dist2 >= (radius - 1) * (radius - 1))
+                            put_pixel(surface,
+                                    center.x + x,
+                                    center.y + y,
+                                    colour);
                     }
                 }
             }
@@ -251,28 +656,40 @@ namespace winhelp {
         using namespace events;
         switch (message) {
             case WM_DESTROY:
-                queue().push_back({ eventTypes::quit, { 0, 0 }, {}, { 0, 0 } });
+                queue().push_back({ eventTypes::quit, { 0, 0 }, {}, events::mouse::none});
                 PostQuitMessage(0);
                 return 0;
             case WM_KEYDOWN:
-                queue().push_back({ eventTypes::key_down, { 0, 0 }, { map_key(wparam) }, { 0, 0 } });
+                queue().push_back({ eventTypes::key_down, { 0, 0 }, { map_key(wparam) }, events::mouse::none});
                 break;
             case WM_KEYUP:
-                queue().push_back({ eventTypes::key_up, { 0, 0 }, { map_key(wparam) }, { 0, 0 } });
+                queue().push_back({ eventTypes::key_up, { 0, 0 }, { map_key(wparam) }, events::mouse::none});
                 break;
             case WM_LBUTTONDOWN:
-                queue().push_back({ eventTypes::mouse_down, { (int)(short)LOWORD(lparam), (int)(short)HIWORD(lparam) }, {}, { 0, 0 } });
+                queue().push_back({ eventTypes::mouse_down, { (int)(short)LOWORD(lparam), (int)(short)HIWORD(lparam) }, {}, events::mouse::left});
                 break;
             case WM_LBUTTONUP:
-                queue().push_back({ eventTypes::mouse_up, { (int)(short)LOWORD(lparam), (int)(short)HIWORD(lparam) }, {}, { 0, 0 } });
+                queue().push_back({ eventTypes::mouse_up, { (int)(short)LOWORD(lparam), (int)(short)HIWORD(lparam) }, {}, events::mouse::none});
+                break;
+            case WM_RBUTTONDOWN:
+                queue().push_back({ eventTypes::mouse_down, { (int)(short)LOWORD(lparam), (int)(short)HIWORD(lparam) }, {}, events::mouse::right});
+                break;
+            case WM_RBUTTONUP:
+                queue().push_back({ eventTypes::mouse_up, { (int)(short)LOWORD(lparam), (int)(short)HIWORD(lparam) }, {}, events::mouse::none});
+                break;
+            case WM_MBUTTONDOWN:
+                queue().push_back({ eventTypes::mouse_down, { (int)(short)LOWORD(lparam), (int)(short)HIWORD(lparam) }, {}, events::mouse::middle});
+                break;
+            case WM_MBUTTONUP:
+                queue().push_back({ eventTypes::mouse_up, { (int)(short)LOWORD(lparam), (int)(short)HIWORD(lparam) }, {}, events::mouse::none});
                 break;
             case WM_MOUSEWHEEL:
-                queue().push_back({ GET_WHEEL_DELTA_WPARAM(wparam) > 0 ? eventTypes::scroll_wheel_up : eventTypes::scroll_wheel_down, { 0, (int)GET_WHEEL_DELTA_WPARAM(wparam) }, {}, { 0, 0 } });
+                queue().push_back({ GET_WHEEL_DELTA_WPARAM(wparam) > 0 ? eventTypes::scroll_wheel_up : eventTypes::scroll_wheel_down, { 0, (int)GET_WHEEL_DELTA_WPARAM(wparam) }, {}, events::mouse::none});
                 break;
             case WM_MOUSEMOVE: {
                 vec2 p{ (short)LOWORD(lparam), (short)HIWORD(lparam) };
                 internal_mouse() = p;
-                queue().push_back({ eventTypes::mouse_move, p, {}, p });
+                queue().push_back({ eventTypes::mouse_move, p, {}, events::mouse::none});
                 break;
             }
         }

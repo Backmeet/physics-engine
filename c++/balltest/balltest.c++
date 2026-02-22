@@ -1,5 +1,5 @@
-#include "libs/engine.hpp"
-#include "E:\vs code\files\winhelp\src\winhelp.hpp"
+#include "../libs/engine.hpp"
+#include "../libs/winhelp.hpp"
 #include <iostream>
 
 void render(winhelp::display& display) {
@@ -27,7 +27,7 @@ int main() {
 
     
     while (1) {
-        display.surface.fill({20, 20, 30});
+        display.surface.fill(winhelp::vec3(20, 20, 30));
         for (const winhelp::events::event& e : winhelp::events::get()) {
             if (e.type == winhelp::events::eventTypes::quit) {
                 display.close();

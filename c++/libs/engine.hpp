@@ -1,5 +1,5 @@
 #pragma once
-#include "E:\vs code\files\winhelp\src\winhelp.hpp"
+#include "winhelp.hpp"
 #include <cmath>
 #include <vector>
 using point = winhelp::vec2;
