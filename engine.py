@@ -42,7 +42,7 @@ def collisionNormalFromLine(lineSeg: line, closest: point, circlePos: point) -> 
     nx /= length
     ny /= length
 
-    # Force normal to point from line → circle
+    # Force normal to point from line -> circle
     to_circle_x = circlePos.x - closest.x
     to_circle_y = circlePos.y - closest.y
 
